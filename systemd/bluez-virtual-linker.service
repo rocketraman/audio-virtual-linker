@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch Bluetooth mode and auto-link virtual audio
+After=sound.target pipewire.service
+
+[Service]
+Type=simple
+ExecStart=%h/source/bluez-virtual-linker/bin/watch-bluetooth-mode.sh
+Restart=on-failure
+RestartSec=2
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target
