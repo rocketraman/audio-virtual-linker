@@ -1,0 +1,18 @@
+= Pipewire Virtual Source/Sink Auto-Linker
+
+== Problem
+
+Bluetooth devices come and go.
+Some software, perhaps only on Linux (Microsoft Teams, I'm looking at you!) has trouble with this.
+After turning on a Bluetooth device, it sometimes takes Teams several minutes to use the mic properly -- and oddly Teams shows the device in the list, and shows input is being received on the volume meter, but yet nobody can hear you.
+
+This repository creates virtual sources and sinks, and assumes these will be set as the system default.
+Applications need only connect to these sources and sinks, and regardless of which physical devices come and go, these virtual sources and sinks remain available to applications.
+
+The scripts in this repository use dbus to monitor for changes in bluetooth devices, as well as bluetooth card profile changes (e.g. headphone stereo mode vs headset mono mode + mic).
+When such a change is detected the script reconfigures the wiring to the virtual sources and sinks, such that applications are always connected to the correct physical device.
+When no bluetooth devices are available, the scripts fall back to the USB system speakers and USB mic via the webcam.
+
+AI was heavily used in the creation of these scripts.
+
+Currently these scripts are very specific to my system devices -- but ideally a refactor would allow all of this to be configuration driven.
