@@ -2,96 +2,42 @@
 
 set -euo pipefail
 
-EARFUN_BT_MAC="A1:51:8D:B9:80:6A"
-EARFUN_BT_UNDERSCORED="${EARFUN_BT_MAC//:/_}"
-EARFUN_DEVICE_PATH="/org/bluez/hci0/dev_${EARFUN_BT_UNDERSCORED}"
-TRANSPORT_NAMESPACE="${EARFUN_DEVICE_PATH}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/.."
+# Import common helpers
+# shellcheck source=/dev/null
+source "${ROOT_DIR}/lib/watch-common.sh"
 
-log() {
-  echo -e "[$(date +'%H:%M:%S')] $*"
-}
-
-wire_mode() {
-  local mode="$1"
-
-  if [[ "$mode" == "earfun-hfp" ]]; then
-    log "🎙 Wiring Earfun HFP (Mic + Mono)..."
-    if ! "${ROOT_DIR}/lib/wire-mode.sh" "earfun-hfp"; then
-      log "❌ Earfun HFP wiring failed"
-    fi
-
-  elif [[ "$mode" == "usb" ]]; then
-    log "🔌 Wiring USB fallback (no Bluetooth active)..."
-    if ! "${ROOT_DIR}/lib/wire-mode.sh" "usb"; then
-      log "❌ USB fallback wiring failed"
-    fi
-  fi
-}
-
-# --- pactl helpers for earfun card --------------------------------------------
-
-get_earfun_profile() {
-  pactl list cards 2>/dev/null \
-    | awk -v RS='' "/bluez_card.${EARFUN_BT_UNDERSCORED}/ {
-         for (i=1; i<=NF; i++)
-           if (\$i ~ /^Active[[:space:]]Profile:/) {
-             sub(/Active[[:space:]]Profile:[[:space:]]*/, \"\", \$0);
-             print \$0;
-             exit
-           }
-       }" \
-    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-}
-
-ensure_earfun_hfp_and_wire() {
-  local CURRENT_PROFILE
-  CURRENT_PROFILE="$(pactl list cards | awk -v RS='' '/A1_51_8D_B9_80_6A/ { for (i=1; i<=NF; i++) if ($i ~ /Active[[:space:]]+Profile:/) { sub(/.*Active[[:space:]]+Profile:[[:space:]]*/, "", $0); print $0; exit } }' \
-    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-
-  if [[ "$CURRENT_PROFILE" == "headset-head-unit" ]]; then
-    log "🎙 Earfun is already headset-head-unit; wiring HFP virtual devices"
-    if ! "${ROOT_DIR}/lib/wire-mode-earfun-hfp.sh"; then
-      log "❌ Earfun wiring failed"
-    fi
-  else
-    echo "🔧 🎧 Updating Earfun card profile to headset-head-unit"
-    pactl set-card-profile bluez_card.A1_51_8D_B9_80_6A headset-head-unit
-  fi
-}
+# Earfun headset (HFP only, lower priority than XM5)
+HEADSET_NAME="Earfun"
+DEVICE_PATH="/org/bluez/hci0/dev_${EARFUN_ADDR_UNDERSCORED}"
+TRANSPORT_NAMESPACE="${DEVICE_PATH}"
 
 
-wire_default_if_no_bt() {
-  if has_any_bt_profile; then
-    log "ℹ Some Bluetooth profile still active; not wiring USB fallback"
-  else
-    log "🔁 No Bluetooth profiles active; wiring USB fallback"
-    wire_mode usb
-  fi
-}
-
-log "🔭 Watching earfun’s headset under ${TRANSPORT_NAMESPACE} ..."
-log "   Device path: ${EARFUN_DEVICE_PATH}"
+log "🔭 Watching BlueZ for ${HEADSET_NAME} under ${TRANSPORT_NAMESPACE} ..."
+log "   Device path: ${DEVICE_PATH}"
+log "   Card name : ${EARFUN_CARD}"
 
 current_path=""
 in_device1=0
 expecting_connected_value=0
 
-dbus-monitor --system \
-  "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path_namespace='${TRANSPORT_NAMESPACE}'" |
 while read -r line; do
+  # New signal block: capture path, reset per-signal state
   if [[ "$line" == signal* ]]; then
     current_path=""
     if [[ "$line" =~ path=([^[:space:]]+) ]]; then
-      current_path="${BASHREMATCH[1]}"
+      current_path="${BASH_REMATCH[1]}"
     fi
     in_device1=0
     expecting_connected_value=0
     continue
   fi
 
-  # org.bluez.Device1 Connected
+  # ---------------------------------------------------------------------------
+  # 1) Device Connected true/false (org.bluez.Device1)
+  # ---------------------------------------------------------------------------
+
   if [[ "$line" == *"org.bluez.Device1"* ]]; then
     in_device1=1
     continue
@@ -103,21 +49,32 @@ while read -r line; do
   fi
 
   if [[ $expecting_connected_value -eq 1 && "$line" == *"boolean true"* ]]; then
-    log "🔌 Earfun Bluetooth headset CONNECTED"
+    log "🔌 Bluetooth device CONNECTED"
+
     in_device1=0
     expecting_connected_value=0
 
-    sleep 2
-    ensure_earfun_hfp_and_wire
+    # Give BlueZ/PipeWire some time to create nodes & card
+    sleep 1
+
+    # Priority: if XM5 is active, do NOT override it
+    if card_has_active_profile "${XM5_CARD}"; then
+      log "ℹ XM5 card (${XM5_CARD}) has an active profile; not wiring Earfun"
+      continue
+    fi
+
+    # Earfun is HFP-only; ensure headset-head-unit + earfun wiring
+    ensure_profile_and_wire "${EARFUN_CARD}" "headset-head-unit" "earfun-hfp" || true
     continue
   fi
 
   if [[ $expecting_connected_value -eq 1 && "$line" == *"boolean false"* ]]; then
-    log "🔌 Earfun Bluetooth headset DISCONNECTED"
+    log "🔌 Bluetooth device DISCONNECTED"
     in_device1=0
     expecting_connected_value=0
 
+    # On Earfun disconnect, maybe fall back to USB unless some BT profile is active
     wire_default_if_no_bt
     continue
   fi
-done
+done < <(dbus-monitor --system "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path_namespace='${TRANSPORT_NAMESPACE}'")

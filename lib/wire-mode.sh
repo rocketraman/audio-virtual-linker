@@ -1,4 +1,3 @@
-### lib/wire-mode.sh
 #!/usr/bin/env bash
 
 # Unified wiring script for virtual sink/mic ↔ Bluetooth/USB
@@ -10,7 +9,7 @@
 #   usb          – USB speakers + USB webcam mic (fallback/default)
 #
 # This script:
-#   * Unlinks ALL links that involve virtual-sink / virtual-mic
+#   * Unlinks ALL physical links that involve virtual-sink / virtual-mic
 #   * Applies a single consistent wiring for the chosen mode
 #   * Enforces XM5 priority over EarFun when requested
 
@@ -41,9 +40,8 @@ XM5_MIC_MONO="bluez_input.80:99:E7:43:87:E0:capture_MONO"
 
 # --- EarFun-style 2nd headset ---
 EARFUN_CARD="bluez_card.A1_51_8D_B9_80_6A"
-EARFUN_OUT_FL="bluez_output.A1_51_8D_B9_80_6A.1:monitor_FL"
-EARFUN_OUT_FR="bluez_output.A1_51_8D_B9_80_6A.1:monitor_FR"
-EARFUN_IN_MONO="bluez_input.A1:51:8D:B9:80:6A:capture_MONO"
+EARFUN_SINK_MONO="bluez_output.A1_51_8D_B9_80_6A.1:playback_MONO"
+EARFUN_MIC_MONO="bluez_input.A1:51:8D:B9:80:6A:capture_MONO"
 
 current_xm5_profile() {
   pactl list cards 2>/dev/null | awk -v RS='' '/Name: '"$XM5_CARD"'/ { if (match($0, /Active Profile: (.*)/, m)) print m[1]; }'
@@ -51,21 +49,34 @@ current_xm5_profile() {
 
 # Unlink any link whose from/to contains virtual-sink or virtual-mic
 unlink_virtual_links() {
-  log "🔌 Unlinking any existing virtual-sink / virtual-mic links..."
-  pw-link -l 2>/dev/null \
-    | grep -E 'virtual-(sink|mic)' || return 0
+  echo -e "  🔌 Unlinking virtual ↔ physical links..."
 
-  pw-link -l 2>/dev/null \
-    | grep -E 'virtual-(sink|mic)' \
-    | sed -E 's/^[[:space:]]*[0-9]+\. //' \
-    | while read -r from arrow to _; do
-        [[ "$arrow" != "->" ]] && continue
-        if [[ -n "$from" && -n "$to" ]]; then
-          log "  ❌ unlink: $from -> $to"
-          pw-link -d "$from" "$to" >/dev/null 2>&1 || true
-        fi
-      done
+  local current_dst=""
+  local physical_regex="($USB_SPK_FL|$USB_SPK_FR|$USB_CAM_MIC_FL|$USB_CAM_MIC_FR|$XM5_SINK_FL|$XM5_SINK_FR|$XM5_SINK_MONO|$XM5_MIC_MONO|$EARFUN_SINK_MONO|$EARFUN_MIC_MONO)"
+
+  pw-link -il 2>/dev/null | while IFS= read -r line; do
+    # New source port
+    if [[ "$line" =~ ^[^\ ].* ]]; then
+      current_dst="$(echo "$line" | sed 's/^[[:space:]]*//')"
+      continue
+    fi
+
+    # Link line found
+    if [[ "$line" =~ ^[[:space:]]*\|[-\<\>]*[[:space:]](.*) ]]; then
+      local src="${BASH_REMATCH[1]}"
+      src="$(echo "$src" | sed 's/^[[:space:]]*//')"
+
+      # Determine if this link should be removed
+      if [[ "$current_dst" =~ virtual-(sink|mic) && "$src" =~ $physical_regex ]] \
+         || [[ "$src" =~ virtual-(sink|mic) && "$current_dst" =~ $physical_regex ]]; then
+
+        echo -e "  ❌ unlink: $src -> $current_dst"
+        pw-link -d "$src" "$current_dst"
+      fi
+    fi
+  done
 }
+
 
 safe_link() {
   local from="$1" to="$2"
@@ -73,11 +84,20 @@ safe_link() {
     log "⚠️  safe_link with empty from/to: '$from' → '$to'"
     return 1
   fi
-  log "  🔗 $from → $to"
-  if ! pw-link "$from" "$to" 2>/dev/null; then
+  log "  🔗 Linking $from → $to"
+  if ! pw-link "$from" "$to"; then
     log "  ⚠️ link failed: $from → $to"
     return 1
   fi
+}
+
+safe_unlink() {
+  local from="$1" to="$2"
+  if [[ -z "$from" || -z "$to" ]]; then
+    return 1
+  fi
+  log "  ❌ Unlink: $from -> $to"
+  pw-link -d "$from" "$to" 2> /dev/null || true
 }
 
 wire_usb() {
@@ -94,7 +114,7 @@ wire_usb() {
 }
 
 wire_xm5_stereo() {
-  log "🎧 Wiring VIRTUAL → XM5 Stereo (AAC) + webcam mic"
+  log "🎧 Wiring VIRTUAL → XM5 Stereo (AAC) + USB webcam mic"
   unlink_virtual_links
 
   # Sink: stereo to XM5
@@ -132,12 +152,12 @@ wire_earfun_hfp() {
   unlink_virtual_links
 
   # Mic: mono into both virtual mic channels
-  safe_link "$EARFUN_IN_MONO" "$VIRTUAL_MIC_FL" || true
-  safe_link "$EARFUN_IN_MONO" "$VIRTUAL_MIC_FR" || true
+  safe_link "$EARFUN_MIC_MONO" "$VIRTUAL_MIC_FL" || true
+  safe_link "$EARFUN_MIC_MONO" "$VIRTUAL_MIC_FR" || true
 
   # Sink: mirror the existing working EarFun wiring
-  safe_link "$VIRTUAL_SINK_FL" "$EARFUN_OUT_FL" || true
-  safe_link "$VIRTUAL_SINK_FR" "$EARFUN_OUT_FR" || true
+  safe_link "$VIRTUAL_SINK_FL" "$EARFUN_SINK_MONO" || true
+  safe_link "$VIRTUAL_SINK_FR" "$EARFUN_SINK_MONO" || true
 }
 
 mode="${1-}" || mode=""
@@ -163,32 +183,4 @@ case "$mode" in
     log "Unknown mode: $mode (expected xm5-hfp|xm5-stereo|earfun-hfp|usb)"
     exit 1
     ;;
- esac
-
-
-### lib/wire-mode-hfp.sh
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-exec "${ROOT_DIR}/lib/wire-mode.sh" xm5-hfp
-
-
-### lib/wire-mode-stereo.sh
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-exec "${ROOT_DIR}/lib/wire-mode.sh" xm5-stereo
-
-
-### lib/wire-mode-usb.sh
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-exec "${ROOT_DIR}/lib/wire-mode.sh" usb
-
-
-### lib/wire-mode-earfun-hfp.sh
-#!/usr/bin/env bash
-set -euo pipefail
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-exec "${ROOT_DIR}/lib/wire-mode.sh" earfun-hfp
+esac

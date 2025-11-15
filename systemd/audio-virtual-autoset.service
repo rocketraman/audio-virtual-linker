@@ -4,7 +4,7 @@ After=sound.target pipewire.service
 
 [Service]
 Type=simple
-ExecStart=%h/source/bluez-virtual-linker/bin/watch-bluetooth-mode.sh
+ExecStart=%h/source/audio-virtual-linker/bin/virtual-autoset.sh
 Restart=on-failure
 RestartSec=2
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
