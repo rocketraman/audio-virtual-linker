@@ -49,7 +49,7 @@ current_xm5_profile() {
 
 # Unlink any link whose from/to contains virtual-sink or virtual-mic
 unlink_virtual_links() {
-  echo -e "  🔌 Unlinking virtual ↔ physical links..."
+  log "  🔌 Unlinking virtual ↔ physical links..."
 
   local current_dst=""
   local physical_regex="($USB_SPK_FL|$USB_SPK_FR|$USB_CAM_MIC_FL|$USB_CAM_MIC_FR|$XM5_SINK_FL|$XM5_SINK_FR|$XM5_SINK_MONO|$XM5_MIC_MONO|$EARFUN_SINK_MONO|$EARFUN_MIC_MONO)"
@@ -70,7 +70,7 @@ unlink_virtual_links() {
       if [[ "$current_dst" =~ virtual-(sink|mic) && "$src" =~ $physical_regex ]] \
          || [[ "$src" =~ virtual-(sink|mic) && "$current_dst" =~ $physical_regex ]]; then
 
-        echo -e "  ❌ unlink: $src -> $current_dst"
+        log "  ❌ unlink: $src -> $current_dst"
         pw-link -d "$src" "$current_dst"
       fi
     fi
