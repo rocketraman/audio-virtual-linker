@@ -103,7 +103,7 @@ while read -r line; do
       in_media=0
 
       # Let PipeWire settle a bit
-      sleep 0.3
+      sleep 0.
 
       current_profile="$(get_card_profile "${XM5_CARD}" || echo "")"
 

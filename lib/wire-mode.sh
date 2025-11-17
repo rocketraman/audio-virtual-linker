@@ -50,33 +50,87 @@ current_xm5_profile() {
   pactl list cards 2>/dev/null | awk -v RS='' '/Name: '"$XM5_CARD"'/ { if (match($0, /Active Profile: (.*)/, m)) print m[1]; }'
 }
 
-# Unlink any link whose from/to contains virtual-sink or virtual-mic
-unlink_virtual_links() {
-  log "  🔌 Unlinking virtual ↔ physical links..."
+# Reusable regex for physical ports we care about
+PHYSICAL_REGEX="($USB_SPK_FL|$USB_SPK_FR|$USB_CAM_MIC_FL|$USB_CAM_MIC_FR|$XM5_SINK_FL|$XM5_SINK_FR|$XM5_SINK_MONO|$XM5_MIC_MONO|$EARFUN_SINK_MONO|$EARFUN_MIC_MONO)"
 
+# List existing links between virtual-(sink|mic) and the supported physical ports
+# Output format per line: "FROM|TO"
+list_virtual_physical_links() {
   local current_dst=""
-  local physical_regex="($USB_SPK_FL|$USB_SPK_FR|$USB_CAM_MIC_FL|$USB_CAM_MIC_FR|$XM5_SINK_FL|$XM5_SINK_FR|$XM5_SINK_MONO|$XM5_MIC_MONO|$EARFUN_SINK_MONO|$EARFUN_MIC_MONO)"
-
   pw-link -il 2>/dev/null | while IFS= read -r line; do
-    # New source port
+    # Destination header line
     if [[ "$line" =~ ^[^\ ].* ]]; then
       current_dst="$(echo "$line" | sed 's/^[[:space:]]*//')"
       continue
     fi
 
-    # Link line found
+    # Linked source line
     if [[ "$line" =~ ^[[:space:]]*\|[-\<\>]*[[:space:]](.*) ]]; then
       local src="${BASH_REMATCH[1]}"
       src="$(echo "$src" | sed 's/^[[:space:]]*//')"
 
-      # Determine if this link should be removed
-      if [[ "$current_dst" =~ virtual-(sink|mic) && "$src" =~ $physical_regex ]] \
-         || [[ "$src" =~ virtual-(sink|mic) && "$current_dst" =~ $physical_regex ]]; then
-
-        log "  ❌ unlink: $src -> $current_dst"
-        pw-link -d "$src" "$current_dst"
+      # Consider only links where exactly one side is virtual-(sink|mic) and the other is in PHYSICAL_REGEX
+      if { [[ "$current_dst" =~ virtual-(sink|mic) && "$src" =~ $PHYSICAL_REGEX ]] || [[ "$src" =~ virtual-(sink|mic) && "$current_dst" =~ $PHYSICAL_REGEX ]]; }; then
+        echo "${src}|${current_dst}"
       fi
     fi
+  done | awk '!seen[$0]++'
+}
+
+# Apply desired links with minimal disruption:
+# 1) Compute existing links (old)
+# 2) Link missing ones (desired − old)
+# 3) Unlink obsolete ones (old − desired)
+apply_links() {
+  # desired pairs passed as arguments: "FROM|TO"
+  local -a desired_pairs=("$@")
+
+  # Build sets
+  declare -A old_set=()
+  declare -A desired_set=()
+
+  # Fill desired_set
+  local p
+  for p in "${desired_pairs[@]}"; do
+    # guard against empty entries
+    [[ -n "$p" ]] && desired_set["$p"]=1
+  done
+
+  # Fill old_set from current graph
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && old_set["$line"]=1
+  done < <(list_virtual_physical_links)
+
+  # To add: in desired but not in old
+  local -a to_add=()
+  for p in "${!desired_set[@]}"; do
+    if [[ -z "${old_set[$p]:-}" ]]; then
+      to_add+=("$p")
+    fi
+  done
+
+  # To remove: in old but not in desired
+  local -a to_remove=()
+  for p in "${!old_set[@]}"; do
+    if [[ -z "${desired_set[$p]:-}" ]]; then
+      to_remove+=("$p")
+    fi
+  done
+
+  # 1) Add new links first
+  local from to
+  for p in "${to_add[@]}"; do
+    from="${p%%|*}"
+    to="${p#*|}"
+    safe_link "$from" "$to" || true
+  done
+
+  # 2) Then remove obsolete links
+  for p in "${to_remove[@]}"; do
+    from="${p%%|*}"
+    to="${p#*|}"
+    safe_unlink "$from" "$to" || true
   done
 }
 
@@ -105,41 +159,38 @@ safe_unlink() {
 
 wire_usb() {
   log "🎧 Wiring VIRTUAL → USB speakers + USB webcam mic"
-  unlink_virtual_links
-
+  local desired=()
   # Sink: everything through USB speakers
-  safe_link "$VIRTUAL_SINK_FL" "$USB_SPK_FL" || true
-  safe_link "$VIRTUAL_SINK_FR" "$USB_SPK_FR" || true
-
+  desired+=("$VIRTUAL_SINK_FL|$USB_SPK_FL")
+  desired+=("$VIRTUAL_SINK_FR|$USB_SPK_FR")
   # Mic: always-available webcam
-  safe_link "$USB_CAM_MIC_FL" "$VIRTUAL_MIC_FL" || true
-  safe_link "$USB_CAM_MIC_FR" "$VIRTUAL_MIC_FR" || true
+  desired+=("$USB_CAM_MIC_FL|$VIRTUAL_MIC_FL")
+  desired+=("$USB_CAM_MIC_FR|$VIRTUAL_MIC_FR")
+  apply_links "${desired[@]}"
 }
 
 wire_xm5_stereo() {
   log "🎧 Wiring VIRTUAL → XM5 Stereo (AAC) + USB webcam mic"
-  unlink_virtual_links
-
+  local desired=()
   # Sink: stereo to XM5
-  safe_link "$VIRTUAL_SINK_FL" "$XM5_SINK_FL" || true
-  safe_link "$VIRTUAL_SINK_FR" "$XM5_SINK_FR" || true
-
+  desired+=("$VIRTUAL_SINK_FL|$XM5_SINK_FL")
+  desired+=("$VIRTUAL_SINK_FR|$XM5_SINK_FR")
   # Mic: keep using webcam in stereo mode
-  safe_link "$USB_CAM_MIC_FL" "$VIRTUAL_MIC_FL" || true
-  safe_link "$USB_CAM_MIC_FR" "$VIRTUAL_MIC_FR" || true
+  desired+=("$USB_CAM_MIC_FL|$VIRTUAL_MIC_FL")
+  desired+=("$USB_CAM_MIC_FR|$VIRTUAL_MIC_FR")
+  apply_links "${desired[@]}"
 }
 
 wire_xm5_hfp() {
   log "🎙 Wiring VIRTUAL ↔ XM5 HFP (mono + mic)"
-  unlink_virtual_links
-
+  local desired=()
   # Mic: bluetooth mono to both L/R virtual mic channels
-  safe_link "$XM5_MIC_MONO" "$VIRTUAL_MIC_FL" || true
-  safe_link "$XM5_MIC_MONO" "$VIRTUAL_MIC_FR" || true
-
+  desired+=("$XM5_MIC_MONO|$VIRTUAL_MIC_FL")
+  desired+=("$XM5_MIC_MONO|$VIRTUAL_MIC_FR")
   # Sink: virtual sink → XM5 mono playback
-  safe_link "$VIRTUAL_SINK_FL" "$XM5_SINK_MONO" || true
-  safe_link "$VIRTUAL_SINK_FR" "$XM5_SINK_MONO" || true
+  desired+=("$VIRTUAL_SINK_FL|$XM5_SINK_MONO")
+  desired+=("$VIRTUAL_SINK_FR|$XM5_SINK_MONO")
+  apply_links "${desired[@]}"
 }
 
 wire_earfun_hfp() {
@@ -152,15 +203,14 @@ wire_earfun_hfp() {
   fi
 
   log "🎧🎙 Wiring VIRTUAL ↔ EarFun HFP (mono + mic)"
-  unlink_virtual_links
-
+  local desired=()
   # Mic: mono into both virtual mic channels
-  safe_link "$EARFUN_MIC_MONO" "$VIRTUAL_MIC_FL" || true
-  safe_link "$EARFUN_MIC_MONO" "$VIRTUAL_MIC_FR" || true
-
+  desired+=("$EARFUN_MIC_MONO|$VIRTUAL_MIC_FL")
+  desired+=("$EARFUN_MIC_MONO|$VIRTUAL_MIC_FR")
   # Sink: mirror the existing working EarFun wiring
-  safe_link "$VIRTUAL_SINK_FL" "$EARFUN_SINK_MONO" || true
-  safe_link "$VIRTUAL_SINK_FR" "$EARFUN_SINK_MONO" || true
+  desired+=("$VIRTUAL_SINK_FL|$EARFUN_SINK_MONO")
+  desired+=("$VIRTUAL_SINK_FR|$EARFUN_SINK_MONO")
+  apply_links "${desired[@]}"
 }
 
 mode="${1-}" || mode=""
