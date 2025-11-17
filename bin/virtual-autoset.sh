@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Import shared helpers (ensure_virtual_devices, wire_mode, get_card_profile, etc.)
-# shellcheck source=/dev/null
 source "${ROOT_DIR}/lib/watch-common.sh"
 
 # Give this script its own log prefix
