@@ -14,7 +14,7 @@ export XM5_ADDR_UNDERSCORED="${XM5_BT_MAC//:/_}"
 export XM5_CARD="bluez_card.${XM5_ADDR_UNDERSCORED}"
 
 # Earfun (HFP only, lower priority than XM5)
-export EARFUN_BT_MAC="A1:51:8D:B9:80_6A"
+export EARFUN_BT_MAC="A1:51:8D:B9:80:6A"
 # You had literal ':' version for the bluez_input name; card name still uses '_' form:
 export EARFUN_ADDR_UNDERSCORED="${EARFUN_BT_MAC//:/_}"
 export EARFUN_CARD="bluez_card.${EARFUN_ADDR_UNDERSCORED}"
@@ -59,6 +59,20 @@ wire_mode() {
 }
 
 # --- Card / profile helpers ---------------------------------------------------
+
+# Get the active HCI path (e.g. /org/bluez/hci1)
+get_active_hci_path() {
+  busctl tree org.bluez --no-pager | grep -o "/org/bluez/hci[0-9]\+" | head -n 1
+}
+
+# Get the BlueZ device object path for a given MAC address (e.g. /org/bluez/hci0/dev_XX_...)
+get_bluez_device_path() {
+  local mac_underscored="${1//:/_}"
+  dbus-send --system --dest=org.bluez --print-reply / org.freedesktop.DBus.ObjectManager.GetManagedObjects |
+    grep "object path" |
+    grep -o "/org/bluez/hci[0-9]\+/dev_${mac_underscored}" |
+    head -n 1
+}
 
 # Get Active Profile for a specific bluez card (or empty string)
 get_card_profile() {

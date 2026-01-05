@@ -9,7 +9,15 @@ source "${ROOT_DIR}/lib/watch-common.sh"
 
 # Earfun headset (HFP only, lower priority than XM5)
 HEADSET_NAME="Earfun"
-DEVICE_PATH="/org/bluez/hci0/dev_${EARFUN_ADDR_UNDERSCORED}"
+DEVICE_PATH="$(get_bluez_device_path "${EARFUN_BT_MAC}")"
+
+if [[ -z "${DEVICE_PATH}" ]]; then
+  log "❌ Could not find BlueZ device path for ${EARFUN_BT_MAC}. Is it paired?"
+  # Fallback to a guess if discovery fails, using active HCI if possible
+  HCI_PATH="$(get_active_hci_path)"
+  DEVICE_PATH="${HCI_PATH:-/org/bluez/hci0}/dev_${EARFUN_ADDR_UNDERSCORED}"
+fi
+
 TRANSPORT_NAMESPACE="${DEVICE_PATH}"
 
 

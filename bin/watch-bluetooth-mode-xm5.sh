@@ -9,7 +9,15 @@ source "${ROOT_DIR}/lib/watch-common.sh"
 
 # XM5 headset
 HEADSET_NAME="XM5"
-DEVICE_PATH="/org/bluez/hci0/dev_${XM5_ADDR_UNDERSCORED}"
+DEVICE_PATH="$(get_bluez_device_path "${XM5_BT_MAC}")"
+
+if [[ -z "${DEVICE_PATH}" ]]; then
+  log "❌ Could not find BlueZ device path for ${XM5_BT_MAC}. Is it paired?"
+  # Fallback to a guess if discovery fails, using active HCI if possible
+  HCI_PATH="$(get_active_hci_path)"
+  DEVICE_PATH="${HCI_PATH:-/org/bluez/hci0}/dev_${XM5_ADDR_UNDERSCORED}"
+fi
+
 TRANSPORT_NAMESPACE="${DEVICE_PATH}"        # watch device + all its children
 LAST_STATE="unknown"   # last MediaTransport1 state: active / idle
 
