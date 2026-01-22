@@ -37,13 +37,13 @@ USB_CAM_MIC_FL="alsa_input.usb-046d_HD_Pro_Webcam_C920_B570B5EF-02.analog-stereo
 USB_CAM_MIC_FR="alsa_input.usb-046d_HD_Pro_Webcam_C920_B570B5EF-02.analog-stereo:capture_FR"
 
 # --- Sony WH-1000XM5 ---
-XM5_SINK_FL="bluez_output.80_99_E7_43_87_E0.1:playback_FL"
-XM5_SINK_FR="bluez_output.80_99_E7_43_87_E0.1:playback_FR"
-XM5_SINK_MONO="bluez_output.80_99_E7_43_87_E0.1:playback_MONO"
+XM5_SINK_FL="bluez_output_internal.80_99_E7_43_87_E0.1:playback_FL"
+XM5_SINK_FR="bluez_output_internal.80_99_E7_43_87_E0.1:playback_FR"
+XM5_SINK_MONO="bluez_output_internal.80_99_E7_43_87_E0.1:playback_MONO"
 XM5_MIC_MONO="bluez_input.80:99:E7:43:87:E0:capture_MONO"
 
 # --- EarFun-style 2nd headset ---
-EARFUN_SINK_MONO="bluez_output.A1_51_8D_B9_80_6A.1:playback_MONO"
+EARFUN_SINK_MONO="bluez_output_internal.A1_51_8D_B9_80_6A.1:playback_MONO"
 EARFUN_MIC_MONO="bluez_input.A1:51:8D:B9:80:6A:capture_MONO"
 
 current_xm5_profile() {

@@ -126,7 +126,7 @@ ensure_profile_and_wire() {
   log "🎚 Current card profile for ${card_name}: ${current_profile:-<none>} (want: ${desired_profile})"
 
   if [[ "${current_profile}" != "${desired_profile}" ]]; then
-    log "🔧 Updating card profile: ${current_profile:-<none>} → ${desired_profile}"
+    log "🔧 Updating card profile: ${current_profile:-<none>} → ${desired_profile} on ${card_name}"
     if ! pactl set-card-profile "${card_name}" "${desired_profile}"; then
       log "❌ Failed to set card profile ${desired_profile} on ${card_name}"
       return 1
