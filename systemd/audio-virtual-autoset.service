@@ -1,6 +1,6 @@
 [Unit]
 Description=Watch Bluetooth mode and auto-link virtual audio
-After=sound.target pipewire.service
+After=dbus.socket pipewire.socket
 
 [Service]
 Type=simple

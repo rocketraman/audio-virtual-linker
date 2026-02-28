@@ -43,6 +43,8 @@ XM5_SINK_MONO="bluez_output_internal.80_99_E7_43_87_E0.1:playback_MONO"
 XM5_MIC_MONO="bluez_input.80:99:E7:43:87:E0:capture_MONO"
 
 # --- EarFun-style 2nd headset ---
+EARFUN_SINK_FL="bluez_output_internal.A1_51_8D_B9_80_6A.1:playback_FL"
+EARFUN_SINK_FR="bluez_output_internal.A1_51_8D_B9_80_6A.1:playback_FR"
 EARFUN_SINK_MONO="bluez_output_internal.A1_51_8D_B9_80_6A.1:playback_MONO"
 EARFUN_MIC_MONO="bluez_input.A1:51:8D:B9:80:6A:capture_MONO"
 
@@ -51,7 +53,7 @@ current_xm5_profile() {
 }
 
 # Reusable regex for physical ports we care about
-PHYSICAL_REGEX="($USB_SPK_FL|$USB_SPK_FR|$USB_CAM_MIC_FL|$USB_CAM_MIC_FR|$XM5_SINK_FL|$XM5_SINK_FR|$XM5_SINK_MONO|$XM5_MIC_MONO|$EARFUN_SINK_MONO|$EARFUN_MIC_MONO)"
+PHYSICAL_REGEX="($USB_SPK_FL|$USB_SPK_FR|$USB_CAM_MIC_FL|$USB_CAM_MIC_FR|$XM5_SINK_FL|$XM5_SINK_FR|$XM5_SINK_MONO|$XM5_MIC_MONO|$EARFUN_SINK_FL|$EARFUN_SINK_FR|$EARFUN_SINK_MONO|$EARFUN_MIC_MONO)"
 
 # List existing links between virtual-(sink|mic) and the supported physical ports
 # Output format per line: "FROM|TO"
@@ -193,6 +195,26 @@ wire_xm5_hfp() {
   apply_links "${desired[@]}"
 }
 
+wire_earfun_stereo() {
+  # XM5 priority: if XM5 card is present and not "off", skip EarFun wiring
+  local xm5_profile
+  xm5_profile="$(current_xm5_profile || true)"
+  if [[ -n "$xm5_profile" && "$xm5_profile" != "off" ]]; then
+    log "🔀 XM5 active (profile=$xm5_profile); skipping EarFun wiring to preserve XM5 priority"
+    return 0
+  fi
+
+  log "🎧🎙 Wiring VIRTUAL ↔ EarFun Stereo (AAC) + USB webcam mic"
+  local desired=()
+  # Sink: stereo to Earfun
+  desired+=("$VIRTUAL_SINK_FL|$EARFUN_SINK_FL")
+  desired+=("$VIRTUAL_SINK_FR|$EARFUN_SINK_FR")
+  # Mic: keep using webcam in stereo mode
+  desired+=("$USB_CAM_MIC_FL|$VIRTUAL_MIC_FL")
+  desired+=("$USB_CAM_MIC_FR|$VIRTUAL_MIC_FR")
+  apply_links "${desired[@]}"
+}
+
 wire_earfun_hfp() {
   # XM5 priority: if XM5 card is present and not "off", skip EarFun wiring
   local xm5_profile
@@ -231,6 +253,9 @@ case "$mode" in
     ;;
   earfun-hfp)
     wire_earfun_hfp
+    ;;
+  earfun-stereo)
+    wire_earfun_stereo
     ;;
   *)
     log "Unknown mode: $mode (expected xm5-hfp|xm5-stereo|earfun-hfp|usb)"

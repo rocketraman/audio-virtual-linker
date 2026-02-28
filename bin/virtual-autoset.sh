@@ -51,13 +51,22 @@ initial_wiring() {
   if [[ -n "${earfun_profile}" && "${earfun_profile}" != "off" ]]; then
     log "🎧 Earfun card found (${EARFUN_CARD}), active profile: ${earfun_profile}"
 
-    if [[ "${earfun_profile}" == "headset-head-unit" ]]; then
-      log "🔧 Wiring Earfun HFP (existing headset profile)..."
-      wire_mode earfun-hfp || log "❌ Failed to wire Earfun HFP"
-      return
-    else
-      log "ℹ Earfun profile '${earfun_profile}' is not handled explicitly; leaving wiring to watcher"
-    fi
+    case "${earfun_profile}" in
+      a2dp-sink)
+        log "🔧 Wiring Earfun stereo (existing A2DP profile)..."
+        wire_mode earfun-stereo || log "❌ Failed to wire Earfun stereo"
+        return
+        ;;
+      headset-head-unit)
+        log "🔧 Wiring Earfun HFP (existing headset profile)..."
+        wire_mode earfun-hfp || log "❌ Failed to wire Earfun HFP"
+        return
+        ;;
+      *)
+        log "ℹ Earfun profile '${earfun_profile}' is not handled explicitly; leaving wiring to watcher"
+        # fallthrough: maybe Earfun or USB can be used
+        ;;
+    esac
   else
     log "ℹ Earfun card not present or profile 'off'"
   fi
