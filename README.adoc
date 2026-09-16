@@ -1,5 +1,9 @@
 = Pipewire Virtual Source/Sink Auto-Linker
 
+**UPDATE**: turns out this was only necessary because my wireplumber state was corrupted somehow.
+Clearing out the local wireplumber state made this entire solution obsolete.
+https://gitlab.freedesktop.org/pipewire/wireplumber/-/issues/191
+
 == Problem
 
 Bluetooth devices come and go.
@@ -16,7 +20,3 @@ When no bluetooth devices are available, the scripts fall back to the USB system
 AI was heavily used in the creation of these scripts.
 
 Currently these scripts are very specific to my system devices -- but ideally a refactor would allow all of this to be configuration driven.
-
-UPDATE: turns out this was only necessary because my wireplumber state was corrupted somehow.
-Clearing out the local wireplumber state made this entire solution obsolete.
-https://gitlab.freedesktop.org/pipewire/wireplumber/-/issues/191
